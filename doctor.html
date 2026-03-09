@@ -1,0 +1,675 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Doctor Dashboard — MedConnect</title>
+    <meta name="description" content="Doctor Dashboard - Manage patient appointments on MedConnect">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link rel="stylesheet" href="style.css">
+</head>
+
+<body>
+    <!-- SIDEBAR -->
+    <aside class="sidebar">
+        <div class="sidebar-brand">
+            <i class="fa-solid fa-house-medical"></i>
+            <h2>MedConnect</h2>
+        </div>
+        <ul class="nav-menu">
+            <li><a href="#" class="active" data-section="overview"><i class="fa-solid fa-chart-line"></i> Overview</a>
+            </li>
+            <li><a href="#" data-section="appointments"><i class="fa-solid fa-calendar-check"></i> Appointments</a></li>
+            <li><a href="#" data-section="patients"><i class="fa-solid fa-user-injured"></i> My Patients</a></li>
+            <li><a href="#" data-section="messages"><i class="fa-solid fa-comment-medical"></i> Messages</a></li>
+            <li><a href="#" data-section="settings"><i class="fa-solid fa-gear"></i> Settings</a></li>
+        </ul>
+        <div class="sidebar-footer">
+            <a href="index.html" id="btn-logout"><i class="fa-solid fa-right-from-bracket"></i> Logout</a>
+        </div>
+    </aside>
+
+    <!-- MAIN -->
+    <main class="main-content">
+        <nav class="top-bar">
+            <div>
+                <h1>Welcome, Dr. Smith</h1>
+                <p class="sub" id="greeting-sub">You have <span id="pending-count">4</span> pending appointments today.
+                </p>
+            </div>
+            <div class="profile-pill">
+                <div class="avatar"><i class="fa-solid fa-user-doctor"></i></div>
+                <span>Dr. John Smith</span>
+            </div>
+        </nav>
+
+        <!-- SECTION: Overview -->
+        <section id="sec-overview">
+            <div class="stats-row">
+                <div class="stat-card blue">
+                    <p class="label">Total Patients</p>
+                    <p class="value" id="stat-patients">1,254</p>
+                    <p class="trend" style="color:var(--success);"><i class="fa-solid fa-arrow-up"></i> 12% this month
+                    </p>
+                </div>
+                <div class="stat-card green">
+                    <p class="label">Today's Appointments</p>
+                    <p class="value" id="stat-today">8</p>
+                    <p class="trend" style="color:var(--secondary);"><i class="fa-solid fa-circle-check"></i> 4
+                        completed</p>
+                </div>
+                <div class="stat-card amber">
+                    <p class="label">Pending Requests</p>
+                    <p class="value" id="stat-pending">4</p>
+                    <p class="trend" style="color:var(--warning);"><i class="fa-solid fa-clock"></i> Awaiting review</p>
+                </div>
+                <div class="stat-card red">
+                    <p class="label">Cancelled</p>
+                    <p class="value" id="stat-cancelled">2</p>
+                    <p class="trend" style="color:var(--muted);">This week</p>
+                </div>
+            </div>
+        </section>
+
+        <!-- SECTION: Appointments Table -->
+        <section id="sec-appointments">
+            <div class="card">
+                <div class="card-header">
+                    <h2><i class="fa-solid fa-calendar-check"></i> Patient Appointments</h2>
+                    <button class="btn btn-primary btn-sm" id="btn-view-all" title="Toggle completed rows">
+                        <i class="fa-solid fa-eye"></i> View All
+                    </button>
+                </div>
+                <div class="table-wrap">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>Patient</th>
+                                <th>Date</th>
+                                <th>Time</th>
+                                <th>Status</th>
+                                <th>Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody id="appt-tbody">
+                            <!-- Rows injected by JS -->
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </section>
+
+        <!-- Placeholder sections for other sidebar links -->
+        <section id="sec-patients" style="display:none;">
+            <div class="card">
+                <div class="card-header">
+                    <h2><i class="fa-solid fa-user-injured"></i> My Patients</h2>
+                </div>
+                <p style="color:var(--muted);padding:20px 0;">Patient records will appear here. This section is for
+                    demonstration purposes.</p>
+            </div>
+        </section>
+        <section id="sec-messages" style="display:none;">
+            <div class="card">
+                <div class="card-header">
+                    <h2><i class="fa-solid fa-comment-medical"></i> Messages</h2>
+                </div>
+                <p style="color:var(--muted);padding:20px 0;">No new messages at this time.</p>
+            </div>
+        </section>
+        <section id="sec-settings" style="display:none;">
+            <div class="settings-layout">
+                <!-- Settings Sidebar -->
+                <div class="settings-sidebar">
+                    <a class="settings-nav-item active" data-tab="profile"><i class="fa-solid fa-user-gear"></i>
+                        Profile</a>
+                    <a class="settings-nav-item" data-tab="password"><i class="fa-solid fa-shield-halved"></i>
+                        Password</a>
+                    <a class="settings-nav-item" data-tab="notifications"><i class="fa-solid fa-bell"></i>
+                        Notifications</a>
+                    <a class="settings-nav-item" data-tab="privacy"><i class="fa-solid fa-lock"></i> Privacy</a>
+                    <a class="settings-nav-item" data-tab="professional"><i class="fa-solid fa-user-doctor"></i>
+                        Professional</a>
+                    <a class="settings-nav-item" data-tab="account"><i class="fa-solid fa-circle-exclamation"></i>
+                        Account</a>
+                </div>
+
+                <!-- Settings Content -->
+                <div class="settings-content">
+
+                    <!-- Profile Settings -->
+                    <div class="settings-panel active" id="tab-profile">
+                        <div class="card">
+                            <div class="card-header">
+                                <h2><i class="fa-solid fa-user-gear"></i> Profile Settings</h2>
+                            </div>
+                            <form id="form-profile">
+                                <div style="display:flex;align-items:center;gap:20px;margin-bottom:20px;">
+                                    <div class="avatar"
+                                        style="width:70px;height:70px;background:var(--secondary);color:white;font-size:1.8rem;border-radius:50%;display:flex;align-items:center;justify-content:center;">
+                                        JS</div>
+                                    <div>
+                                        <button type="button" class="btn btn-primary btn-sm" id="btn-upload-pic">Upload
+                                            New Picture</button>
+                                        <p style="font-size:0.8rem;color:var(--muted);margin-top:6px;">JPG, GIF or PNG.
+                                            Max size 2MB</p>
+                                    </div>
+                                </div>
+                                <div class="form-row">
+                                    <div class="form-field">
+                                        <label>Full Name</label>
+                                        <input type="text" id="set-name" value="Dr. John Smith" disabled>
+                                    </div>
+                                    <div class="form-field">
+                                        <label>Email Address</label>
+                                        <input type="email" id="set-email" value="doctor@test.com" disabled>
+                                    </div>
+                                </div>
+                                <div class="form-row">
+                                    <div class="form-field">
+                                        <label>Phone Number</label>
+                                        <input type="tel" id="set-phone" value="+1 (555) 123-4567" disabled>
+                                    </div>
+                                    <div class="form-field">
+                                        <label>Address</label>
+                                        <input type="text" id="set-address" value="123 Medical Pl, Health City"
+                                            disabled>
+                                    </div>
+                                </div>
+                                <div style="margin-top:20px;">
+                                    <button type="button" class="btn btn-primary" id="btn-edit-profile">Edit
+                                        Profile</button>
+                                    <button type="submit" class="btn btn-success" id="btn-save-profile"
+                                        style="display:none;">Save Changes</button>
+                                    <button type="button" class="btn btn-ghost" id="btn-cancel-profile"
+                                        style="display:none;margin-left:8px;color:var(--text);border-color:#ccc;">Cancel</button>
+                                </div>
+                            </form>
+                        </div>
+                    </div>
+
+                    <!-- Password Settings -->
+                    <div class="settings-panel" id="tab-password">
+                        <div class="card">
+                            <div class="card-header">
+                                <h2><i class="fa-solid fa-shield-halved"></i> Password Settings</h2>
+                            </div>
+                            <form id="form-password" style="max-width:500px;">
+                                <div class="form-field">
+                                    <label>Current Password</label>
+                                    <input type="password" id="pwd-current" required>
+                                </div>
+                                <div class="form-field">
+                                    <label>New Password</label>
+                                    <input type="password" id="pwd-new" required>
+                                </div>
+                                <div class="form-field">
+                                    <label>Confirm Password</label>
+                                    <input type="password" id="pwd-confirm" required>
+                                </div>
+                                <button type="submit" class="btn btn-success" style="margin-top:10px;">Change
+                                    Password</button>
+                                <button type="button" class="btn btn-ghost" id="btn-reset-pwd"
+                                    style="margin-top:10px;margin-left:8px;color:var(--text);border-color:#ccc;">Reset
+                                    Fields</button>
+                            </form>
+                        </div>
+                    </div>
+
+                    <!-- Notification Settings -->
+                    <div class="settings-panel" id="tab-notifications">
+                        <div class="card">
+                            <div class="card-header">
+                                <h2><i class="fa-solid fa-bell"></i> Notification Settings</h2>
+                            </div>
+                            <div class="settings-row">
+                                <div class="settings-info">
+                                    <h4>Email Notifications</h4>
+                                    <p>Receive daily summaries and important updates via email.</p>
+                                </div>
+                                <label class="toggle-switch">
+                                    <input type="checkbox" id="tog-email" checked>
+                                    <span class="slider"></span>
+                                </label>
+                            </div>
+                            <div class="settings-row">
+                                <div class="settings-info">
+                                    <h4>SMS Notifications</h4>
+                                    <p>Get instant text alerts for critical platform events.</p>
+                                </div>
+                                <label class="toggle-switch">
+                                    <input type="checkbox" id="tog-sms">
+                                    <span class="slider"></span>
+                                </label>
+                            </div>
+                            <div class="settings-row">
+                                <div class="settings-info">
+                                    <h4>Appointment Reminders</h4>
+                                    <p>Automated alerts when appointments are booked or cancelled.</p>
+                                </div>
+                                <label class="toggle-switch">
+                                    <input type="checkbox" id="tog-appt" checked>
+                                    <span class="slider"></span>
+                                </label>
+                            </div>
+                            <div style="margin-top:24px;">
+                                <button class="btn btn-primary" id="btn-save-notifs">Save Notification Settings</button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Privacy Settings -->
+                    <div class="settings-panel" id="tab-privacy">
+                        <div class="card">
+                            <div class="card-header">
+                                <h2><i class="fa-solid fa-lock"></i> Privacy Settings</h2>
+                            </div>
+                            <div class="settings-row">
+                                <div class="settings-info">
+                                    <h4>Make Profile Public</h4>
+                                    <p>Allow patients to find you in the portal search directory.</p>
+                                </div>
+                                <label class="toggle-switch">
+                                    <input type="checkbox" id="tog-public" checked>
+                                    <span class="slider"></span>
+                                </label>
+                            </div>
+                            <div class="settings-row">
+                                <div class="settings-info">
+                                    <h4>Two-Factor Authentication</h4>
+                                    <p>Add an extra layer of security to your account.</p>
+                                </div>
+                                <label class="toggle-switch">
+                                    <input type="checkbox" id="tog-2fa">
+                                    <span class="slider"></span>
+                                </label>
+                            </div>
+                            <div style="margin-top:24px;">
+                                <button class="btn btn-primary" id="btn-download-data" style="margin-right:10px;"><i
+                                        class="fa-solid fa-download"></i> Download Account Data</button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Professional Settings (Doctor Specific) -->
+                    <div class="settings-panel" id="tab-professional">
+                        <div class="card">
+                            <div class="card-header">
+                                <h2><i class="fa-solid fa-user-doctor"></i> Professional Details</h2>
+                            </div>
+                            <div class="form-row">
+                                <div class="form-field">
+                                    <label>Specialization</label>
+                                    <input type="text" id="doc-specialty" value="Cardiology">
+                                </div>
+                                <div class="form-field">
+                                    <label>Clinic Address</label>
+                                    <input type="text" id="doc-clinic" value="Bldg 4, MedConnect Campus">
+                                </div>
+                            </div>
+
+                            <h3 style="margin:20px 0 10px;font-size:1rem;color:var(--primary);">Weekly Availability
+                                Slots</h3>
+                            <div id="availability-slots" style="margin-bottom:20px;">
+                                <div style="display:flex;gap:10px;margin-bottom:10px;">
+                                    <input type="text" value="Monday, 09:00 AM - 05:00 PM"
+                                        style="flex:1;padding:8px;border:1px solid #ccc;border-radius:6px;" readonly>
+                                    <button class="btn btn-danger btn-sm"
+                                        onclick="this.parentElement.remove();toast('Slot removed','error');"><i
+                                            class="fa-solid fa-trash"></i></button>
+                                </div>
+                                <div style="display:flex;gap:10px;margin-bottom:10px;">
+                                    <input type="text" value="Wednesday, 10:00 AM - 02:00 PM"
+                                        style="flex:1;padding:8px;border:1px solid #ccc;border-radius:6px;" readonly>
+                                    <button class="btn btn-danger btn-sm"
+                                        onclick="this.parentElement.remove();toast('Slot removed','error');"><i
+                                            class="fa-solid fa-trash"></i></button>
+                                </div>
+                            </div>
+                            <div style="display:flex;gap:10px;margin-bottom:20px;flex-wrap:wrap;align-items:center;">
+                                <select id="new-slot-day" style="padding:8px;border:1px solid #ccc;border-radius:6px;">
+                                    <option>Tuesday</option>
+                                    <option>Thursday</option>
+                                    <option>Friday</option>
+                                </select>
+                                <input type="time" id="new-slot-start"
+                                    style="padding:8px;border:1px solid #ccc;border-radius:6px;">
+                                <span>to</span>
+                                <input type="time" id="new-slot-end"
+                                    style="padding:8px;border:1px solid #ccc;border-radius:6px;">
+                                <button class="btn btn-success btn-sm" id="btn-add-slot">Add Slot</button>
+                            </div>
+                            <button class="btn btn-primary" id="btn-save-professional">Update Availability</button>
+                        </div>
+                    </div>
+
+                    <!-- Account Actions -->
+                    <div class="settings-panel" id="tab-account">
+                        <div class="card" style="border:2px solid var(--accent);background:#fff5f5;">
+                            <div class="card-header" style="border-bottom:none;">
+                                <h2><i class="fa-solid fa-triangle-exclamation" style="color:var(--accent);"></i>
+                                    Account Actions</h2>
+                            </div>
+                            <p style="color:var(--muted);font-size:0.9rem;margin-bottom:20px;">These actions are
+                                permanent and will affect your access to MedConnect.</p>
+                            <div style="display:flex;gap:16px;">
+                                <button class="btn btn-danger" id="btn-deactivate">Deactivate Account</button>
+                                <button class="btn btn-danger" id="btn-delete-account"
+                                    style="background:#7f1d1d;">Delete Account</button>
+                            </div>
+                        </div>
+                    </div>
+
+                </div>
+            </div>
+        </section>
+
+        <!-- MODALS -->
+        <div class="modal-overlay" id="modal-deactivate">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h3>Confirm Deactivation</h3>
+                    <button class="modal-close" onclick="closeModal('modal-deactivate')"><i
+                            class="fa-solid fa-xmark"></i></button>
+                </div>
+                <div class="modal-body">
+                    <p>Are you sure you want to deactivate your account? Your profile will be hidden from patients, but
+                        your data will be saved.</p>
+                </div>
+                <div class="modal-footer">
+                    <button class="btn btn-ghost" style="color:var(--text);border-color:#ccc;"
+                        onclick="closeModal('modal-deactivate')">Cancel</button>
+                    <button class="btn btn-danger" onclick="confirmDeactivate()">Yes, Deactivate</button>
+                </div>
+            </div>
+        </div>
+
+        <div class="modal-overlay" id="modal-delete">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h3>Delete Account</h3>
+                    <button class="modal-close" onclick="closeModal('modal-delete')"><i
+                            class="fa-solid fa-xmark"></i></button>
+                </div>
+                <div class="modal-body">
+                    <p style="color:var(--accent);font-weight:600;">Warning: This action cannot be undone.</p>
+                    <p>All your data, appointments, and records will be permanently deleted from the system.</p>
+                </div>
+                <div class="modal-footer">
+                    <button class="btn btn-ghost" style="color:var(--text);border-color:#ccc;"
+                        onclick="closeModal('modal-delete')">Cancel</button>
+                    <button class="btn btn-danger" style="background:#7f1d1d;" onclick="confirmDelete()">Permanently
+                        Delete</button>
+                </div>
+            </div>
+        </div>
+
+        <footer>&copy; 2024 MedConnect Hospital Portal. All rights reserved.</footer>
+    </main>
+
+    <script>
+        /* ==========================================
+           DOCTOR DASHBOARD – Fully Functional JS
+           ========================================== */
+
+        // Toast utility
+        function toast(msg, type = 'success') {
+            const el = document.createElement('div');
+            el.className = 'toast toast-' + type;
+            el.textContent = msg;
+            document.body.appendChild(el);
+            setTimeout(() => el.remove(), 3300);
+        }
+
+        // ---- SIDEBAR NAV ----
+        const sections = ['overview', 'appointments', 'patients', 'messages', 'settings'];
+        const navLinks = document.querySelectorAll('.nav-menu a[data-section]');
+
+        navLinks.forEach(link => {
+            link.addEventListener('click', e => {
+                e.preventDefault();
+                const target = link.dataset.section;
+                // Toggle active class
+                navLinks.forEach(l => l.classList.remove('active'));
+                link.classList.add('active');
+                // Show / hide sections
+                sections.forEach(s => {
+                    const sec = document.getElementById('sec-' + s);
+                    if (sec) sec.style.display = (s === target) ? '' : 'none';
+                });
+            });
+        });
+
+        // ---- APPOINTMENTS DATA ----
+        let appointments = [
+            { id: 1, name: 'John Doe', initials: 'JD', date: '2024-10-24', time: '10:00 AM', status: 'Pending' },
+            { id: 2, name: 'Jane Smith', initials: 'JS', date: '2024-10-24', time: '11:30 AM', status: 'Pending' },
+            { id: 3, name: 'Robert Johnson', initials: 'RJ', date: '2024-10-25', time: '09:00 AM', status: 'Pending' },
+            { id: 4, name: 'Mary Williams', initials: 'MW', date: '2024-10-25', time: '02:00 PM', status: 'Pending' },
+            { id: 5, name: 'Emily Davis', initials: 'ED', date: '2024-10-26', time: '03:00 PM', status: 'Accepted' },
+            { id: 6, name: 'Chris Martinez', initials: 'CM', date: '2024-10-26', time: '04:00 PM', status: 'Rejected' },
+        ];
+
+        const tbody = document.getElementById('appt-tbody');
+
+        function fmtDate(d) {
+            return new Date(d + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+        }
+
+        function badgeClass(status) {
+            const map = { Pending: 'badge-pending', Accepted: 'badge-accepted', Rejected: 'badge-rejected' };
+            return map[status] || 'badge-pending';
+        }
+
+        function renderTable() {
+            tbody.innerHTML = '';
+            appointments.forEach(a => {
+                const tr = document.createElement('tr');
+                tr.innerHTML = `
+                <td>
+                    <div style="display:flex;align-items:center;gap:10px;">
+                        <div class="avatar" style="width:32px;height:32px;font-size:0.75rem;background:var(--secondary);color:white;">${a.initials}</div>
+                        <span>${a.name}</span>
+                    </div>
+                </td>
+                <td>${fmtDate(a.date)}</td>
+                <td>${a.time}</td>
+                <td><span class="badge ${badgeClass(a.status)}">${a.status}</span></td>
+                <td class="action-btns">
+                    ${a.status === 'Pending' ? `
+                        <button class="btn btn-success btn-sm" onclick="acceptAppt(${a.id})" title="Accept">
+                            <i class="fa-solid fa-check"></i> Accept
+                        </button>
+                        <button class="btn btn-danger btn-sm" onclick="rejectAppt(${a.id})" title="Reject">
+                            <i class="fa-solid fa-xmark"></i> Reject
+                        </button>` : '—'}
+                </td>`;
+                tbody.appendChild(tr);
+            });
+            updateCounts();
+        }
+
+        function updateCounts() {
+            const pending = appointments.filter(a => a.status === 'Pending').length;
+            const rejected = appointments.filter(a => a.status === 'Rejected').length;
+            const accepted = appointments.filter(a => a.status === 'Accepted').length;
+            document.getElementById('stat-pending').textContent = pending;
+            document.getElementById('stat-cancelled').textContent = rejected;
+            document.getElementById('stat-today').textContent = appointments.length;
+            document.getElementById('pending-count').textContent = pending;
+        }
+
+        // ACCEPT button
+        window.acceptAppt = function (id) {
+            const a = appointments.find(x => x.id === id);
+            if (a) { a.status = 'Accepted'; renderTable(); toast(`Appointment for ${a.name} accepted ✅`); }
+        };
+
+        // REJECT button
+        window.rejectAppt = function (id) {
+            const a = appointments.find(x => x.id === id);
+            if (a) { a.status = 'Rejected'; renderTable(); toast(`Appointment for ${a.name} rejected`, 'error'); }
+        };
+
+        // VIEW ALL button – toggle non-pending rows visibility
+        let showAll = true;
+        document.getElementById('btn-view-all').addEventListener('click', () => {
+            showAll = !showAll;
+            document.querySelectorAll('#appt-tbody tr').forEach(tr => {
+                const badge = tr.querySelector('.badge');
+                if (badge && !badge.classList.contains('badge-pending')) {
+                    tr.style.display = showAll ? '' : 'none';
+                }
+            });
+            document.getElementById('btn-view-all').innerHTML = showAll
+                ? '<i class="fa-solid fa-eye"></i> View All'
+                : '<i class="fa-solid fa-eye-slash"></i> Pending Only';
+        });
+
+        // LOGOUT button
+        document.getElementById('btn-logout').addEventListener('click', e => {
+            e.preventDefault();
+            toast('Logged out successfully', 'info');
+            setTimeout(() => window.location.href = 'index.html', 800);
+        });
+
+        /* ==========================================
+           SETTINGS LOGIC
+           ========================================== */
+
+        // Settings Tabs
+        const settingsNavs = document.querySelectorAll('.settings-nav-item');
+        const settingsPanels = document.querySelectorAll('.settings-panel');
+
+        settingsNavs.forEach(nav => {
+            nav.addEventListener('click', () => {
+                settingsNavs.forEach(n => n.classList.remove('active'));
+                settingsPanels.forEach(p => p.classList.remove('active'));
+                nav.classList.add('active');
+                document.getElementById('tab-' + nav.dataset.tab).classList.add('active');
+            });
+        });
+
+        // Modals
+        window.openModal = function (id) { document.getElementById(id).classList.add('active'); };
+        window.closeModal = function (id) { document.getElementById(id).classList.remove('active'); };
+
+        // Profile Logic
+        const formProfile = document.getElementById('form-profile');
+        const profileInputs = formProfile.querySelectorAll('input:not([type="file"])');
+        const btnEditProfile = document.getElementById('btn-edit-profile');
+        const btnSaveProfile = document.getElementById('btn-save-profile');
+        const btnCancelProfile = document.getElementById('btn-cancel-profile');
+
+        const saveBtnStyles = { d: 'inline-block', d_none: 'none' };
+
+        btnEditProfile.addEventListener('click', () => {
+            profileInputs.forEach(i => i.disabled = false);
+            btnEditProfile.style.display = saveBtnStyles.d_none;
+            btnSaveProfile.style.display = saveBtnStyles.d;
+            btnCancelProfile.style.display = saveBtnStyles.d;
+            profileInputs[0].focus();
+        });
+
+        btnCancelProfile.addEventListener('click', () => {
+            profileInputs.forEach(i => i.disabled = true);
+            btnEditProfile.style.display = saveBtnStyles.d;
+            btnSaveProfile.style.display = saveBtnStyles.d_none;
+            btnCancelProfile.style.display = saveBtnStyles.d_none;
+            formProfile.reset(); // Back to default
+        });
+
+        formProfile.addEventListener('submit', (e) => {
+            e.preventDefault();
+            // Simulate saving to localStorage
+            localStorage.setItem('docName', document.getElementById('set-name').value);
+            profileInputs.forEach(i => i.disabled = true);
+            btnEditProfile.style.display = saveBtnStyles.d;
+            btnSaveProfile.style.display = saveBtnStyles.d_none;
+            btnCancelProfile.style.display = saveBtnStyles.d_none;
+            toast('Profile updated successfully! ✅');
+        });
+
+        document.getElementById('btn-upload-pic').addEventListener('click', () => {
+            toast('File dialog opened. (Simulated)', 'info');
+        });
+
+        // Password Logic
+        document.getElementById('form-password').addEventListener('submit', (e) => {
+            e.preventDefault();
+            const n = document.getElementById('pwd-new').value;
+            const c = document.getElementById('pwd-confirm').value;
+            if (n !== c) {
+                toast('New passwords do not match!', 'error');
+                return;
+            }
+            if (n.length < 6) {
+                toast('Password must be at least 6 characters.', 'error');
+                return;
+            }
+            toast('Password changed successfully! 🔐');
+            e.target.reset();
+        });
+
+        document.getElementById('btn-reset-pwd').addEventListener('click', () => {
+            document.getElementById('form-password').reset();
+        });
+
+        // Notification Logic
+        document.getElementById('btn-save-notifs').addEventListener('click', () => {
+            localStorage.setItem('notifEmail', document.getElementById('tog-email').checked);
+            localStorage.setItem('notifSms', document.getElementById('tog-sms').checked);
+            toast('Notification preferences saved. 🔔');
+        });
+
+        // Privacy Logic
+        document.getElementById('tog-public').addEventListener('change', (e) => {
+            toast(e.target.checked ? 'Profile is now Public.' : 'Profile is now Private.', 'info');
+        });
+        document.getElementById('tog-2fa').addEventListener('change', (e) => {
+            toast(e.target.checked ? '2FA Enabled! Check email for code.' : '2FA Disabled.', e.target.checked ? 'success' : 'error');
+        });
+        document.getElementById('btn-download-data').addEventListener('click', () => {
+            toast('Preparing account data for download...', 'info');
+        });
+
+        // Professional Logic
+        document.getElementById('btn-save-professional').addEventListener('click', () => {
+            toast('Professional details updated.');
+        });
+        document.getElementById('btn-add-slot').addEventListener('click', () => {
+            const day = document.getElementById('new-slot-day').value;
+            const s = document.getElementById('new-slot-start').value;
+            const e = document.getElementById('new-slot-end').value;
+            if (!s || !e) { toast('Please select start and end time', 'error'); return; }
+
+            const div = document.createElement('div');
+            div.style.cssText = 'display:flex;gap:10px;margin-bottom:10px;';
+            div.innerHTML = `<input type="text" value="${day}, ${s} - ${e}" style="flex:1;padding:8px;border:1px solid #ccc;border-radius:6px;" readonly><button class="btn btn-danger btn-sm" onclick="this.parentElement.remove();toast('Slot removed','error');"><i class="fa-solid fa-trash"></i></button>`;
+            document.getElementById('availability-slots').appendChild(div);
+            toast('Time slot added. 🕒');
+        });
+
+        // Account Logic
+        document.getElementById('btn-deactivate').addEventListener('click', () => openModal('modal-deactivate'));
+        document.getElementById('btn-delete-account').addEventListener('click', () => openModal('modal-delete'));
+
+        window.confirmDeactivate = function () {
+            closeModal('modal-deactivate');
+            toast('Account deactivated.', 'info');
+            setTimeout(() => window.location.href = 'index.html', 1500);
+        };
+        window.confirmDelete = function () {
+            localStorage.clear();
+            closeModal('modal-delete');
+            toast('Account permanently deleted.', 'error');
+            setTimeout(() => window.location.href = 'index.html', 1500);
+        };
+
+        // Initial render
+        renderTable();
+    </script>
+</body>
+
+</html>

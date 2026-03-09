@@ -1,0 +1,118 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>MedConnect — Login or Register</title>
+    <meta name="description" content="MedConnect Doctor-Patient Portal - Login or Register to manage appointments">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link rel="stylesheet" href="style.css">
+</head>
+
+<body>
+    <div class="auth-page">
+        <div class="auth-box" id="auth-box">
+
+            <!-- ===== REGISTER FORM ===== -->
+            <div class="form-panel panel-register">
+                <form id="register-form">
+                    <h1><i class="fa-solid fa-user-plus" style="color:var(--secondary);margin-right:8px;"></i>Create
+                        Account</h1>
+                    <p class="subtitle">Join our healthcare network today</p>
+
+                    <div class="input-group">
+                        <i class="fa-solid fa-user"></i>
+                        <input type="text" id="reg-name" placeholder="Full Name" required>
+                    </div>
+                    <div class="input-group">
+                        <i class="fa-solid fa-envelope"></i>
+                        <input type="email" id="reg-email" placeholder="Email Address" required>
+                    </div>
+                    <div class="input-group">
+                        <i class="fa-solid fa-lock"></i>
+                        <input type="password" id="reg-password" placeholder="Password" required>
+                    </div>
+                    <div class="input-group">
+                        <i class="fa-solid fa-user-tag"></i>
+                        <select id="reg-role" required>
+                            <option value="" disabled selected>Select Role</option>
+                            <option value="doctor">Doctor</option>
+                            <option value="patient">Patient</option>
+                        </select>
+                    </div>
+
+                    <button type="submit" class="btn btn-primary" style="width:100%;">
+                        <i class="fa-solid fa-user-plus"></i> Sign Up
+                    </button>
+
+                    <!-- Visible on mobile only -->
+                    <p class="mobile-switch" style="display:none;text-align:center;margin-top:18px;font-size:0.85rem;">
+                        Already have an account? <a href="#" id="to-login-mobile"
+                            style="color:var(--secondary);font-weight:600;">Sign In</a>
+                    </p>
+                </form>
+            </div>
+
+            <!-- ===== LOGIN FORM ===== -->
+            <div class="form-panel panel-login">
+                <form id="login-form">
+                    <h1><i class="fa-solid fa-right-to-bracket"
+                            style="color:var(--secondary);margin-right:8px;"></i>Welcome Back</h1>
+                    <p class="subtitle">Login to access your dashboard</p>
+
+                    <div class="input-group">
+                        <i class="fa-solid fa-envelope"></i>
+                        <input type="email" id="login-email" placeholder="Email Address" required>
+                    </div>
+                    <div class="input-group">
+                        <i class="fa-solid fa-lock"></i>
+                        <input type="password" id="login-password" placeholder="Password" required>
+                    </div>
+                    <div class="input-group">
+                        <i class="fa-solid fa-user-tag"></i>
+                        <select id="login-role" required>
+                            <option value="" disabled selected>Select Role</option>
+                            <option value="doctor">Doctor</option>
+                            <option value="patient">Patient</option>
+                        </select>
+                    </div>
+
+                    <a href="#" class="forgot-link">Forgot your password?</a>
+
+                    <button type="submit" class="btn btn-primary" style="width:100%;">
+                        <i class="fa-solid fa-right-to-bracket"></i> Sign In
+                    </button>
+
+                    <!-- Visible on mobile only -->
+                    <p class="mobile-switch" style="display:none;text-align:center;margin-top:18px;font-size:0.85rem;">
+                        Don't have an account? <a href="#" id="to-register-mobile"
+                            style="color:var(--secondary);font-weight:600;">Sign Up</a>
+                    </p>
+                </form>
+            </div>
+
+            <!-- ===== OVERLAY SLIDER ===== -->
+            <div class="overlay-container">
+                <div class="overlay">
+                    <div class="overlay-panel overlay-left">
+                        <h1>Already a Member?</h1>
+                        <p>Sign in with your credentials to access your personalized healthcare dashboard.</p>
+                        <button class="btn btn-ghost" id="go-login"><i class="fa-solid fa-right-to-bracket"></i> Sign
+                            In</button>
+                    </div>
+                    <div class="overlay-panel overlay-right">
+                        <h1>New Here?</h1>
+                        <p>Register as a Doctor or Patient and start managing your appointments seamlessly.</p>
+                        <button class="btn btn-ghost" id="go-register"><i class="fa-solid fa-user-plus"></i> Sign
+                            Up</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="script.js"></script>
+</body>
+
+</html>
