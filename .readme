@@ -1,0 +1,27 @@
+MedConnect Doctor-Patient Portal
+
+Overview
+This repo contains the MedConnect government medical portal (React + Vite frontend, Node + MongoDB backend).
+It includes patient and doctor dashboards, services, research registry views, and seeded mock data.
+
+Quick Start
+1) Install dependencies: npm install
+2) Start API server:
+   - Set MONGODB_URI to your Mongo connection string (example: mongodb://localhost:27017)
+   - Run: npm run server
+3) Start the frontend: npm run dev
+4) Open the app at http://localhost:5173
+
+Build
+npm run build
+
+Environment
+MONGODB_URI is required for the API server.
+
+Mock Accounts
+Doctor: doctor@test.com / Welcome123!
+Patient: alex@test.com / Welcome123!
+
+Notes
+The seed includes multiple doctors, patients, appointments, lab reports, pharmacy orders, diagnostic tests,
+health packages, blood bank inventory, claims, trials, and guidelines.
