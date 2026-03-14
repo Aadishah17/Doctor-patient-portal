@@ -13,6 +13,7 @@ const NAV_ITEMS = [
 ];
 
 export default function PatientDashboard({ auth, onLogout, onUserUpdate, toast }) {
+    const isMockMode = localStorage.getItem('medconnectApiMode') === 'mock';
     const [activeSection, setActiveSection] = useState('overview');
     const [sidebarOpen, setSidebarOpen] = useState(false);
     const [doctors, setDoctors] = useState([]);
@@ -215,6 +216,109 @@ export default function PatientDashboard({ auth, onLogout, onUserUpdate, toast }
         });
     }, [researchTrials, trialQuery, trialStatus, trialPhase]);
 
+    const nextAppointment = useMemo(() => {
+        const upcoming = appointments
+            .filter(item => !['Cancelled', 'Completed', 'Declined'].includes(item.status) && item.date >= today)
+            .sort((a, b) => new Date(`${a.date} ${a.time}`) - new Date(`${b.date} ${b.time}`));
+        return upcoming[0] || appointments[0] || null;
+    }, [appointments, today]);
+
+    const preferredDoctor = useMemo(() => {
+        const preferredId = auth.user?.profile?.preferredDoctorId || profileForm.preferredDoctorId;
+        return doctors.find(doc => doc.id === preferredId) || null;
+    }, [auth.user?.profile?.preferredDoctorId, doctors, profileForm.preferredDoctorId]);
+
+    const readyReports = useMemo(
+        () => labReports.filter(report => ['Ready', 'Available'].includes(report.status)).length,
+        [labReports]
+    );
+    const activeOrders = useMemo(
+        () => pharmacyOrders.filter(order => !['Delivered', 'Cancelled'].includes(order.status)).length,
+        [pharmacyOrders]
+    );
+    const openClaimsTotal = useMemo(
+        () => claims.reduce((sum, claim) => sum + (claim.status === 'Approved' ? 0 : Number(claim.amount || 0)), 0),
+        [claims]
+    );
+    const careScore = useMemo(() => {
+        const score = 62 + (stats.confirmed * 8) + (readyReports * 4) + (activeOrders ? 6 : 0) + (claims.length ? 5 : 0);
+        return Math.min(score, 96);
+    }, [activeOrders, claims.length, readyReports, stats.confirmed]);
+
+    const careJourney = useMemo(() => ([
+        {
+            id: 'care-score',
+            value: `${careScore}%`,
+            label: 'Care momentum',
+            hint: 'Derived from visits, reports, and medication activity.'
+        },
+        {
+            id: 'reports',
+            value: `${readyReports}`,
+            label: 'Ready reports',
+            hint: readyReports ? 'Review new findings before the next visit.' : 'No unread report is waiting.'
+        },
+        {
+            id: 'claims',
+            value: claims.length ? formatCurrency(openClaimsTotal || claims[0]?.amount || 0) : 'None',
+            label: 'Coverage tracked',
+            hint: claims.length ? `${claims.length} insurance item(s) active in the portal.` : 'No pending insurance activity.'
+        }
+    ]), [careScore, claims, openClaimsTotal, readyReports]);
+
+    const todayChecklist = useMemo(() => ([
+        {
+            id: 'visit',
+            icon: 'fa-calendar-day',
+            title: nextAppointment ? 'Next visit is lined up' : 'No visit booked yet',
+            text: nextAppointment
+                ? `${formatDate(nextAppointment.date)} at ${nextAppointment.time} with ${nextAppointment.doctorName}.`
+                : 'Book a follow-up or preventive appointment to keep your plan on track.'
+        },
+        {
+            id: 'pharmacy',
+            icon: 'fa-pills',
+            title: activeOrders ? 'Medication flow is active' : 'Medication flow is clear',
+            text: activeOrders
+                ? `${activeOrders} pharmacy order(s) are still in progress.`
+                : 'No medication delivery or refill is waiting for action.'
+        },
+        {
+            id: 'research',
+            icon: 'fa-flask',
+            title: researchTrials.length ? 'Research options available' : 'Research library ready',
+            text: researchTrials.length
+                ? `${researchTrials.filter(item => item.status === 'Recruiting').length} recruiting studies match the current library.`
+                : 'Guidelines and trials will appear here once published.'
+        }
+    ]), [activeOrders, nextAppointment, researchTrials]);
+
+    const focusCards = useMemo(() => ([
+        {
+            id: 'preferred',
+            icon: 'fa-user-doctor',
+            label: 'Preferred clinician',
+            value: preferredDoctor?.name || 'Set your preferred doctor',
+            meta: preferredDoctor ? preferredDoctor.specialty : 'Save your care preference in Settings.'
+        },
+        {
+            id: 'diagnostics',
+            icon: 'fa-vial-circle-check',
+            label: 'Home diagnostics',
+            value: `${diagnosticTests.filter(item => item.homeCollection).length} options`,
+            meta: 'Tests eligible for home collection right now.'
+        },
+        {
+            id: 'adherence',
+            icon: 'fa-heart-pulse',
+            label: 'Medication profile',
+            value: medical.medications || 'Add medication list',
+            meta: medical.medications ? 'Keep this updated before each appointment.' : 'Document medications in Settings.'
+        }
+    ]), [diagnosticTests, medical.medications, preferredDoctor]);
+
+    const researchHighlights = useMemo(() => filteredTrials.slice(0, 2), [filteredTrials]);
+
     const openExternal = url => {
         window.open(url, '_blank', 'noopener,noreferrer');
     };
@@ -405,7 +509,11 @@ export default function PatientDashboard({ auth, onLogout, onUserUpdate, toast }
                         </button>
                         <div>
                             <h1>Patient Dashboard</h1>
-                            <p className="sub">Welcome back, {auth.user?.name || 'Patient'}.</p>
+                            <p className="sub">
+                                {nextAppointment
+                                    ? `Welcome back, ${auth.user?.name || 'Patient'}. Your next ${nextAppointment.mode.toLowerCase()} visit is on ${formatDate(nextAppointment.date)} at ${nextAppointment.time}.`
+                                    : `Welcome back, ${auth.user?.name || 'Patient'}. Your care plan, records, and bookings are all in one place.`}
+                            </p>
                         </div>
                     </div>
                     <div className="top-bar-actions">
@@ -427,15 +535,75 @@ export default function PatientDashboard({ auth, onLogout, onUserUpdate, toast }
                     </div>
                 </nav>
 
-                <div className="alert-banner">
-                    <i className="fa-solid fa-circle-info"></i>
+                <div className={`alert-banner ${isMockMode ? 'alert-banner--info' : ''}`}>
+                    <i className={`fa-solid ${isMockMode ? 'fa-database' : 'fa-circle-info'}`}></i>
                     <div>
-                        <strong>Reminder:</strong> Bring your updated insurance card for in-person appointments this week.
+                        <strong>{isMockMode ? 'Demo mode:' : 'Reminder:'}</strong>{' '}
+                        {isMockMode
+                            ? 'The portal is using local mock data because the API server is unavailable.'
+                            : 'Bring your updated insurance card for in-person appointments this week.'}
                     </div>
                 </div>
 
                 {activeSection === 'overview' && (
                     <section>
+                        <div className="dashboard-hero dashboard-hero--patient">
+                            <div className="hero-panel hero-panel--teal">
+                                <div className="hero-copy">
+                                    <span className="eyebrow">Care snapshot</span>
+                                    <h2>{nextAppointment ? 'Your next visit is already in motion.' : 'Shape your next care milestone.'}</h2>
+                                    <p>
+                                        {nextAppointment
+                                            ? `${nextAppointment.doctorName} will see you on ${formatDate(nextAppointment.date)} at ${nextAppointment.time}. Use the quick actions to confirm, reschedule, or prep documents.`
+                                            : 'Book a preventive or follow-up appointment, upload key information, and keep your care timeline moving.'}
+                                    </p>
+                                </div>
+                                <div className="hero-actions">
+                                    <button className="btn btn-primary" onClick={() => setActiveSection('book')}>
+                                        <i className="fa-solid fa-calendar-plus"></i> Book visit
+                                    </button>
+                                    {nextAppointment && (
+                                        <button
+                                            className="btn btn-ghost"
+                                            style={{ color: 'var(--white)', borderColor: 'rgba(255,255,255,0.32)' }}
+                                            onClick={() => handleReschedule(nextAppointment)}
+                                        >
+                                            <i className="fa-solid fa-pen-to-square"></i> Adjust next visit
+                                        </button>
+                                    )}
+                                </div>
+                                <div className="hero-metric-strip">
+                                    {careJourney.map(item => (
+                                        <div className="hero-metric-card" key={item.id}>
+                                            <strong>{item.value}</strong>
+                                            <span>{item.label}</span>
+                                            <small>{item.hint}</small>
+                                        </div>
+                                    ))}
+                                </div>
+                            </div>
+
+                            <div className="hero-panel hero-panel--light">
+                                <div className="hero-side-header">
+                                    <span className="eyebrow">Today&apos;s focus</span>
+                                    <h3>What needs attention next</h3>
+                                </div>
+                                <div className="hero-side-list">
+                                    {todayChecklist.map(item => (
+                                        <div className="hero-side-item" key={item.id}>
+                                            <div className="hero-side-icon">
+                                                <i className={`fa-solid ${item.icon}`}></i>
+                                            </div>
+                                            <div>
+                                                <strong>{item.title}</strong>
+                                                <p>{item.text}</p>
+                                            </div>
+                                        </div>
+                                    ))}
+                                </div>
+                            </div>
+                        </div>
+
                         <div className="stats-row">
                             <div className="stat-card blue">
                                 <p className="label">Total Appointments</p>
@@ -459,6 +627,56 @@ export default function PatientDashboard({ auth, onLogout, onUserUpdate, toast }
                             </div>
                         </div>
 
+                        <div className="insight-grid">
+                            <div className="insight-card">
+                                <div className="card-header">
+                                    <h2><i className="fa-solid fa-compass-drafting"></i> Personal Care Map</h2>
+                                </div>
+                                <div className="focus-list">
+                                    {focusCards.map(item => (
+                                        <div className="focus-row" key={item.id}>
+                                            <div className="focus-icon">
+                                                <i className={`fa-solid ${item.icon}`}></i>
+                                            </div>
+                                            <div className="focus-copy">
+                                                <span>{item.label}</span>
+                                                <strong>{item.value}</strong>
+                                                <small>{item.meta}</small>
+                                            </div>
+                                        </div>
+                                    ))}
+                                </div>
+                            </div>
+                            <div className="insight-card insight-card--accent">
+                                <div className="card-header">
+                                    <h2><i className="fa-solid fa-flask-vial"></i> Research and Preventive Picks</h2>
+                                </div>
+                                <div className="compact-list">
+                                    {researchHighlights.length > 0 ? researchHighlights.map(item => (
+                                        <div className="compact-item" key={item.id}>
+                                            <div>
+                                                <strong>{item.title}</strong>
+                                                <span>{item.phase} · {item.status} · {item.location}</span>
+                                            </div>
+                                            <button className="btn btn-ghost btn-sm" onClick={() => setActiveSection('research')}>
+                                                Explore
+                                            </button>
+                                        </div>
+                                    )) : (
+                                        <div className="compact-item">
+                                            <div>
+                                                <strong>Preventive services are available</strong>
+                                                <span>Browse diagnostics and health packages curated for ongoing care.</span>
+                                            </div>
+                                            <button className="btn btn-ghost btn-sm" onClick={() => setActiveSection('services')}>
+                                                Browse services
+                                            </button>
+                                        </div>
+                                    )}
+                                </div>
+                            </div>
+                        </div>
+
                         <div className="overview-grid">
                             <div className="card">
                                 <div className="card-header">
@@ -466,21 +684,29 @@ export default function PatientDashboard({ auth, onLogout, onUserUpdate, toast }
                                     <span className="status-chip status-chip--info">Upcoming</span>
                                 </div>
                                 <div className="panel-list">
-                                    {appointments.slice(0, 1).map(appt => (
-                                        <div className="panel-item" key={appt.id}>
+                                    {nextAppointment ? (
+                                        <div className="panel-item" key={nextAppointment.id}>
                                             <div className="panel-meta">
-                                                <strong>{appt.doctorName}</strong>
-                                                <span>{appt.doctorSpecialty} · {formatDate(appt.date)} at {appt.time}</span>
+                                                <strong>{nextAppointment.doctorName}</strong>
+                                                <span>{nextAppointment.doctorSpecialty} · {formatDate(nextAppointment.date)} at {nextAppointment.time}</span>
                                             </div>
                                             <div className="panel-actions">
-                                                <button className="btn btn-success btn-sm">Confirm</button>
-                                                <button className="btn btn-ghost btn-sm" style={{ color: 'var(--text)', borderColor: '#cbd5e1' }}>
+                                                <button
+                                                    className="btn btn-success btn-sm"
+                                                    onClick={() => updateAppointment(nextAppointment.id, { status: 'Confirmed' }, 'Appointment confirmed.')}
+                                                >
+                                                    Confirm
+                                                </button>
+                                                <button
+                                                    className="btn btn-ghost btn-sm"
+                                                    style={{ color: 'var(--text)', borderColor: '#cbd5e1' }}
+                                                    onClick={() => handleReschedule(nextAppointment)}
+                                                >
                                                     Reschedule
                                                 </button>
                                             </div>
                                         </div>
-                                    ))}
-                                    {appointments.length === 0 && (
+                                    ) : (
                                         <div className="panel-item">
                                             <div className="panel-meta">
                                                 <strong>No upcoming appointments</strong>

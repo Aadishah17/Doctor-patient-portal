@@ -3,8 +3,24 @@ import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom';
 import AuthPage from './pages/AuthPage.jsx';
 import DoctorDashboard from './pages/DoctorDashboard.jsx';
 import PatientDashboard from './pages/PatientDashboard.jsx';
+import HelpChatbot from './components/HelpChatbot.jsx';
+import ThemeDock from './components/ThemeDock.jsx';
 import ToastContainer from './components/ToastContainer.jsx';
 import { api, authStorage } from './lib/api.js';
+
+const THEME_KEY = 'medconnectThemePreference';
+
+function getSystemTheme() {
+    return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+}
+
+function getInitialThemePreference() {
+    const saved = localStorage.getItem(THEME_KEY);
+    if (saved === 'light' || saved === 'dark' || saved === 'auto') {
+        return saved;
+    }
+    return 'auto';
+}
 
 function RequireAuth({ auth, role, children }) {
     if (!auth.user) {
@@ -24,6 +40,10 @@ export default function App() {
     const [loading, setLoading] = useState(false);
     const [checking, setChecking] = useState(true);
     const [toasts, setToasts] = useState([]);
+    const [themePreference, setThemePreference] = useState(getInitialThemePreference);
+    const [resolvedTheme, setResolvedTheme] = useState(() => (
+        getInitialThemePreference() === 'auto' ? getSystemTheme() : getInitialThemePreference()
+    ));
 
     const toast = useCallback((message, type = 'success') => {
         const id = `${Date.now()}-${Math.random().toString(16).slice(2)}`;
@@ -68,6 +88,34 @@ export default function App() {
             active = false;
         };
     }, []);
+
+    useEffect(() => {
+        const mediaQuery = window.matchMedia('(prefers-color-scheme: dark)');
+        const applyTheme = () => {
+            const nextResolvedTheme = themePreference === 'auto' ? getSystemTheme() : themePreference;
+            setResolvedTheme(nextResolvedTheme);
+            document.documentElement.dataset.theme = nextResolvedTheme;
+            document.documentElement.dataset.themePreference = themePreference;
+            document.documentElement.style.colorScheme = nextResolvedTheme;
+            localStorage.setItem(THEME_KEY, themePreference);
+        };
+
+        applyTheme();
+
+        const handleChange = () => {
+            if (themePreference === 'auto') {
+                applyTheme();
+            }
+        };
+
+        if (typeof mediaQuery.addEventListener === 'function') {
+            mediaQuery.addEventListener('change', handleChange);
+            return () => mediaQuery.removeEventListener('change', handleChange);
+        }
+
+        mediaQuery.addListener(handleChange);
+        return () => mediaQuery.removeListener(handleChange);
+    }, [themePreference]);
 
     const handleLogin = async ({ email, password, role, remember }) => {
         setLoading(true);
@@ -139,6 +187,12 @@ export default function App() {
     return (
         <BrowserRouter>
             <ToastContainer toasts={toasts} />
+            <ThemeDock
+                themePreference={themePreference}
+                resolvedTheme={resolvedTheme}
+                onChange={setThemePreference}
+            />
+            <HelpChatbot auth={auth} />
             <Routes>
                 <Route
                     path="/"

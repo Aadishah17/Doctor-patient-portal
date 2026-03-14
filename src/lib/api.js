@@ -1,5 +1,12 @@
+import { mockApi } from './mockApi.js';
+
 const TOKEN_KEY = 'medconnectToken';
 const USER_KEY = 'medconnectUser';
+const MODE_KEY = 'medconnectApiMode';
+
+function updateMode(mode) {
+    localStorage.setItem(MODE_KEY, mode);
+}
 
 export const authStorage = {
     getToken() {
@@ -13,7 +20,13 @@ export const authStorage = {
     },
     getUser() {
         const raw = localStorage.getItem(USER_KEY);
-        return raw ? JSON.parse(raw) : null;
+        if (!raw) return null;
+        try {
+            return JSON.parse(raw);
+        } catch (err) {
+            localStorage.removeItem(USER_KEY);
+            return null;
+        }
     },
     setUser(user) {
         localStorage.setItem(USER_KEY, JSON.stringify(user));
@@ -31,90 +44,172 @@ async function request(path, options = {}) {
         headers.set('Authorization', `Bearer ${token}`);
     }
 
-    const res = await fetch(path, {
-        ...options,
-        headers
-    });
+    let res;
+    try {
+        res = await fetch(path, {
+            ...options,
+            headers
+        });
+    } catch (err) {
+        const error = new Error('Unable to reach the API server.');
+        error.code = 'NETWORK_ERROR';
+        throw error;
+    }
 
     const contentType = res.headers.get('content-type') || '';
     const payload = contentType.includes('application/json') ? await res.json() : null;
     if (!res.ok) {
         const message = payload?.message || 'Request failed.';
-        throw new Error(message);
+        const error = new Error(message);
+        error.status = res.status;
+        throw error;
     }
     return payload;
 }
 
+function shouldFallbackToMock(error) {
+    return error?.code === 'NETWORK_ERROR';
+}
+
+async function withFallback(serverCall, mockCall) {
+    try {
+        const result = await serverCall();
+        updateMode('server');
+        return result;
+    } catch (error) {
+        if (!shouldFallbackToMock(error)) {
+            throw error;
+        }
+        const result = await mockCall();
+        updateMode('mock');
+        return result;
+    }
+}
+
 export const api = {
     async login({ email, password, role }) {
-        return request('/api/login', {
-            method: 'POST',
-            body: JSON.stringify({ email, password, role })
-        });
+        return withFallback(
+            () => request('/api/login', {
+                method: 'POST',
+                body: JSON.stringify({ email, password, role })
+            }),
+            () => mockApi.login({ email, password, role })
+        );
     },
     async register(payload) {
-        return request('/api/register', {
-            method: 'POST',
-            body: JSON.stringify(payload)
-        });
+        return withFallback(
+            () => request('/api/register', {
+                method: 'POST',
+                body: JSON.stringify(payload)
+            }),
+            () => mockApi.register(payload)
+        );
     },
     async logout() {
-        return request('/api/logout', { method: 'POST' });
+        return withFallback(
+            () => request('/api/logout', { method: 'POST' }),
+            () => mockApi.logout()
+        );
     },
     async getMe() {
-        return request('/api/me');
+        return withFallback(
+            () => request('/api/me'),
+            () => mockApi.getMe()
+        );
     },
     async updateProfile(payload) {
-        return request('/api/me', {
-            method: 'PATCH',
-            body: JSON.stringify(payload)
-        });
+        return withFallback(
+            () => request('/api/me', {
+                method: 'PATCH',
+                body: JSON.stringify(payload)
+            }),
+            () => mockApi.updateProfile(payload)
+        );
     },
     async getDoctors() {
-        return request('/api/doctors');
+        return withFallback(
+            () => request('/api/doctors'),
+            () => mockApi.getDoctors()
+        );
     },
     async getAppointments(params = {}) {
         const query = new URLSearchParams(params).toString();
         const suffix = query ? `?${query}` : '';
-        return request(`/api/appointments${suffix}`);
+        return withFallback(
+            () => request(`/api/appointments${suffix}`),
+            () => mockApi.getAppointments(params)
+        );
     },
     async createAppointment(payload) {
-        return request('/api/appointments', {
-            method: 'POST',
-            body: JSON.stringify(payload)
-        });
+        return withFallback(
+            () => request('/api/appointments', {
+                method: 'POST',
+                body: JSON.stringify(payload)
+            }),
+            () => mockApi.createAppointment(payload)
+        );
     },
     async updateAppointment(id, payload) {
-        return request(`/api/appointments/${id}`, {
-            method: 'PATCH',
-            body: JSON.stringify(payload)
-        });
+        return withFallback(
+            () => request(`/api/appointments/${id}`, {
+                method: 'PATCH',
+                body: JSON.stringify(payload)
+            }),
+            () => mockApi.updateAppointment(id, payload)
+        );
     },
     async getAudit() {
-        return request('/api/audit');
+        return withFallback(
+            () => request('/api/audit'),
+            () => mockApi.getAudit()
+        );
     },
     async getLabReports() {
-        return request('/api/lab-reports');
+        return withFallback(
+            () => request('/api/lab-reports'),
+            () => mockApi.getLabReports()
+        );
     },
     async getPharmacyOrders() {
-        return request('/api/pharmacy-orders');
+        return withFallback(
+            () => request('/api/pharmacy-orders'),
+            () => mockApi.getPharmacyOrders()
+        );
     },
     async getDiagnosticTests() {
-        return request('/api/diagnostic-tests');
+        return withFallback(
+            () => request('/api/diagnostic-tests'),
+            () => mockApi.getDiagnosticTests()
+        );
     },
     async getHealthPackages() {
-        return request('/api/health-packages');
+        return withFallback(
+            () => request('/api/health-packages'),
+            () => mockApi.getHealthPackages()
+        );
     },
     async getBloodBank() {
-        return request('/api/blood-bank');
+        return withFallback(
+            () => request('/api/blood-bank'),
+            () => mockApi.getBloodBank()
+        );
     },
     async getClaims() {
-        return request('/api/claims');
+        return withFallback(
+            () => request('/api/claims'),
+            () => mockApi.getClaims()
+        );
     },
     async getResearchTrials() {
-        return request('/api/research/trials');
+        return withFallback(
+            () => request('/api/research/trials'),
+            () => mockApi.getResearchTrials()
+        );
     },
     async getGuidelines() {
-        return request('/api/research/guidelines');
+        return withFallback(
+            () => request('/api/research/guidelines'),
+            () => mockApi.getGuidelines()
+        );
     }
 };

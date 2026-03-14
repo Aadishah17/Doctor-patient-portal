@@ -12,6 +12,7 @@ const NAV_ITEMS = [
 ];
 
 export default function DoctorDashboard({ auth, onLogout, onUserUpdate, toast }) {
+    const isMockMode = localStorage.getItem('medconnectApiMode') === 'mock';
     const [activeSection, setActiveSection] = useState('overview');
     const [sidebarOpen, setSidebarOpen] = useState(false);
     const [appointments, setAppointments] = useState([]);
@@ -153,6 +154,98 @@ export default function DoctorDashboard({ auth, onLogout, onUserUpdate, toast })
         });
     }, [researchTrials, trialQuery, trialStatus, trialPhase]);
 
+    const today = useMemo(() => new Date().toISOString().slice(0, 10), []);
+    const activeAppointments = useMemo(() => {
+        return appointments
+            .filter(item => !['Completed', 'Declined'].includes(item.status))
+            .sort((a, b) => new Date(`${a.date} ${a.time}`) - new Date(`${b.date} ${b.time}`));
+    }, [appointments]);
+    const todayAppointments = useMemo(
+        () => activeAppointments.filter(item => item.date === today),
+        [activeAppointments, today]
+    );
+    const nextVisit = useMemo(
+        () => todayAppointments[0] || activeAppointments.find(item => item.date >= today) || appointments[0] || null,
+        [activeAppointments, appointments, today, todayAppointments]
+    );
+    const uniquePatients = useMemo(
+        () => new Set(appointments.map(item => item.patientName).filter(Boolean)).size,
+        [appointments]
+    );
+    const labBacklog = useMemo(
+        () => labReports.filter(report => report.status !== 'Reviewed').length,
+        [labReports]
+    );
+    const medicationQueue = useMemo(
+        () => pharmacyOrders.filter(order => !['Delivered', 'Cancelled'].includes(order.status)).length,
+        [pharmacyOrders]
+    );
+    const claimsInFlight = useMemo(
+        () => claims.filter(claim => !['Approved', 'Rejected'].includes(claim.status)).length,
+        [claims]
+    );
+    const operationalScore = useMemo(() => {
+        const score = 58 + (stats.confirmed * 10) + (todayAppointments.length * 5) + (labBacklog ? 4 : 0);
+        return Math.min(score, 97);
+    }, [labBacklog, stats.confirmed, todayAppointments.length]);
+
+    const clinicMetrics = useMemo(() => ([
+        {
+            id: 'readiness',
+            value: `${operationalScore}%`,
+            label: 'Clinic readiness',
+            hint: 'Blends schedule load, lab backlog, and confirmations.'
+        },
+        {
+            id: 'patients',
+            value: `${uniquePatients}`,
+            label: 'Active patients',
+            hint: 'Patients represented across recent and upcoming visits.'
+        },
+        {
+            id: 'work',
+            value: `${labBacklog + medicationQueue + claimsInFlight}`,
+            label: 'Operational tasks',
+            hint: 'Labs, medication coordination, and claims follow-up.'
+        }
+    ]), [claimsInFlight, labBacklog, medicationQueue, operationalScore, uniquePatients]);
+
+    const priorityActions = useMemo(() => ([
+        {
+            id: 'schedule',
+            icon: 'fa-calendar-day',
+            title: nextVisit ? 'Next patient is scheduled' : 'No next consult scheduled',
+            text: nextVisit
+                ? `${nextVisit.patientName} at ${nextVisit.time} for ${nextVisit.visitType || 'Consultation'}.`
+                : 'Open availability or confirm pending requests from the appointments board.'
+        },
+        {
+            id: 'labs',
+            icon: 'fa-flask',
+            title: labBacklog ? 'Lab review queue is active' : 'Lab queue is clear',
+            text: labBacklog
+                ? `${labBacklog} report(s) need acknowledgement or follow-up.`
+                : 'No pending report review is waiting for action.'
+        },
+        {
+            id: 'ops',
+            icon: 'fa-layer-group',
+            title: medicationQueue || claimsInFlight ? 'Care operations need follow-through' : 'Operations are stable',
+            text: medicationQueue || claimsInFlight
+                ? `${medicationQueue} medication item(s) and ${claimsInFlight} claim(s) are still moving.`
+                : 'No operational carryover is blocking care delivery.'
+        }
+    ]), [claimsInFlight, labBacklog, medicationQueue, nextVisit]);
+
+    const queueHighlights = useMemo(
+        () => activeAppointments.slice(0, 3),
+        [activeAppointments]
+    );
+    const researchHighlights = useMemo(
+        () => filteredTrials.slice(0, 2),
+        [filteredTrials]
+    );
+
     const openExternal = url => {
         window.open(url, '_blank', 'noopener,noreferrer');
     };
@@ -225,7 +318,11 @@ export default function DoctorDashboard({ auth, onLogout, onUserUpdate, toast })
                         </button>
                         <div>
                             <h1>Welcome, {auth.user?.name || 'Doctor'}</h1>
-                            <p className="sub">You have {stats.pending} pending and {stats.confirmed} confirmed appointments today.</p>
+                            <p className="sub">
+                                {nextVisit
+                                    ? `You have ${stats.pending} pending and ${stats.confirmed} confirmed appointments. Next up: ${nextVisit.patientName} at ${nextVisit.time}.`
+                                    : `You have ${stats.pending} pending and ${stats.confirmed} confirmed appointments in the active queue.`}
+                            </p>
                         </div>
                     </div>
                     <div className="top-bar-actions">
@@ -244,19 +341,77 @@ export default function DoctorDashboard({ auth, onLogout, onUserUpdate, toast })
                     </div>
                 </nav>
 
-                <div className="alert-banner">
-                    <i className="fa-solid fa-triangle-exclamation"></i>
+                <div className={`alert-banner ${isMockMode ? 'alert-banner--info' : ''}`}>
+                    <i className={`fa-solid ${isMockMode ? 'fa-database' : 'fa-triangle-exclamation'}`}></i>
                     <div>
-                        <strong>Service notice:</strong> Lab result uploads may be delayed between 6:00 PM and 8:00 PM due to scheduled maintenance.
+                        <strong>{isMockMode ? 'Demo mode:' : 'Service notice:'}</strong>{' '}
+                        {isMockMode
+                            ? 'The dashboard is reading seeded local data because the API server is unavailable.'
+                            : 'Lab result uploads may be delayed between 6:00 PM and 8:00 PM due to scheduled maintenance.'}
                     </div>
                 </div>
 
                 {activeSection === 'overview' && (
                     <section>
+                        <div className="dashboard-hero dashboard-hero--doctor">
+                            <div className="hero-panel hero-panel--slate">
+                                <div className="hero-copy">
+                                    <span className="eyebrow">Clinical brief</span>
+                                    <h2>{nextVisit ? `Next consult: ${nextVisit.patientName} at ${nextVisit.time}` : 'Your clinic board is currently clear.'}</h2>
+                                    <p>
+                                        {nextVisit
+                                            ? `${nextVisit.mode} ${nextVisit.visitType || 'consultation'} scheduled for ${formatDate(nextVisit.date)}. Use quick actions to move from triage to visit execution without leaving the dashboard.`
+                                            : 'Review pending requests, add new slots, or jump into research and operational follow-through from the same workspace.'}
+                                    </p>
+                                </div>
+                                <div className="hero-actions">
+                                    <button className="btn btn-primary" onClick={() => toast('Televisit room opened.', 'info')}>
+                                        <i className="fa-solid fa-video"></i> Start televisit
+                                    </button>
+                                    <button
+                                        className="btn btn-ghost"
+                                        style={{ color: 'var(--white)', borderColor: 'rgba(255,255,255,0.32)' }}
+                                        onClick={() => setActiveSection('appointments')}
+                                    >
+                                        <i className="fa-solid fa-list-check"></i> Open appointment board
+                                    </button>
+                                </div>
+                                <div className="hero-metric-strip">
+                                    {clinicMetrics.map(item => (
+                                        <div className="hero-metric-card" key={item.id}>
+                                            <strong>{item.value}</strong>
+                                            <span>{item.label}</span>
+                                            <small>{item.hint}</small>
+                                        </div>
+                                    ))}
+                                </div>
+                            </div>
+
+                            <div className="hero-panel hero-panel--light">
+                                <div className="hero-side-header">
+                                    <span className="eyebrow">Shift priorities</span>
+                                    <h3>What requires action now</h3>
+                                </div>
+                                <div className="hero-side-list">
+                                    {priorityActions.map(item => (
+                                        <div className="hero-side-item" key={item.id}>
+                                            <div className="hero-side-icon">
+                                                <i className={`fa-solid ${item.icon}`}></i>
+                                            </div>
+                                            <div>
+                                                <strong>{item.title}</strong>
+                                                <p>{item.text}</p>
+                                            </div>
+                                        </div>
+                                    ))}
+                                </div>
+                            </div>
+                        </div>
+
                         <div className="stats-row">
                             <div className="stat-card blue">
                                 <p className="label">Total Patients</p>
-                                <p className="value">{new Set(appointments.map(a => a.patientName)).size}</p>
+                                <p className="value">{uniquePatients}</p>
                                 <p className="trend" style={{ color: 'var(--success)' }}>12% this month</p>
                             </div>
                             <div className="stat-card green">
@@ -273,6 +428,65 @@ export default function DoctorDashboard({ auth, onLogout, onUserUpdate, toast })
                                 <p className="label">Declined</p>
                                 <p className="value">{stats.declined}</p>
                                 <p className="trend" style={{ color: 'var(--muted)' }}>This week</p>
+                            </div>
+                        </div>
+
+                        <div className="insight-grid">
+                            <div className="insight-card">
+                                <div className="card-header">
+                                    <h2><i className="fa-solid fa-stethoscope"></i> Priority Queue</h2>
+                                </div>
+                                <div className="compact-list">
+                                    {queueHighlights.length > 0 ? queueHighlights.map(appt => (
+                                        <div className="compact-item" key={appt.id}>
+                                            <div>
+                                                <strong>{appt.patientName}</strong>
+                                                <span>{formatDate(appt.date)} at {appt.time} · {appt.mode} · {appt.status}</span>
+                                            </div>
+                                            <button
+                                                className="btn btn-ghost btn-sm"
+                                                onClick={() => updateAppointmentStatus(appt.id, 'Confirmed')}
+                                            >
+                                                Confirm
+                                            </button>
+                                        </div>
+                                    )) : (
+                                        <div className="compact-item">
+                                            <div>
+                                                <strong>No appointments in the active queue</strong>
+                                                <span>Create availability or follow up on patient intake.</span>
+                                            </div>
+                                        </div>
+                                    )}
+                                </div>
+                            </div>
+                            <div className="insight-card insight-card--accent">
+                                <div className="card-header">
+                                    <h2><i className="fa-solid fa-book-medical"></i> Research and Guideline Feed</h2>
+                                </div>
+                                <div className="compact-list">
+                                    {researchHighlights.length > 0 ? researchHighlights.map(item => (
+                                        <div className="compact-item" key={item.id}>
+                                            <div>
+                                                <strong>{item.title}</strong>
+                                                <span>{item.phase} · {item.status} · {item.sponsor}</span>
+                                            </div>
+                                            <button className="btn btn-ghost btn-sm" onClick={() => setActiveSection('research')}>
+                                                Review
+                                            </button>
+                                        </div>
+                                    )) : (
+                                        <div className="compact-item">
+                                            <div>
+                                                <strong>{filteredGuidelines.length} guidelines ready</strong>
+                                                <span>Jump into research to review the latest clinical guidance and trials.</span>
+                                            </div>
+                                            <button className="btn btn-ghost btn-sm" onClick={() => setActiveSection('research')}>
+                                                Open research
+                                            </button>
+                                        </div>
+                                    )}
+                                </div>
                             </div>
                         </div>
 

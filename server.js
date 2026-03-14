@@ -5,6 +5,30 @@ const crypto = require('crypto');
 const { MongoClient, ObjectId } = require('mongodb');
 const { URL } = require('url');
 
+function loadEnvFile(filePath) {
+    if (!fs.existsSync(filePath)) return;
+    const content = fs.readFileSync(filePath, 'utf8');
+    for (const line of content.split(/\r?\n/)) {
+        const trimmed = line.trim();
+        if (!trimmed || trimmed.startsWith('#')) continue;
+        const separatorIndex = trimmed.indexOf('=');
+        if (separatorIndex === -1) continue;
+        const key = trimmed.slice(0, separatorIndex).trim();
+        if (!key || process.env[key] !== undefined) continue;
+        let value = trimmed.slice(separatorIndex + 1).trim();
+        if (
+            (value.startsWith('"') && value.endsWith('"')) ||
+            (value.startsWith("'") && value.endsWith("'"))
+        ) {
+            value = value.slice(1, -1);
+        }
+        process.env[key] = value;
+    }
+}
+
+loadEnvFile(path.join(__dirname, '.env.local'));
+loadEnvFile(path.join(__dirname, '.env'));
+
 const PORT = parseInt(process.env.PORT || '8080', 10);
 const MONGODB_URI = process.env.MONGODB_URI || '';
 const DB_NAME = process.env.MONGODB_DB || 'medconnect';
@@ -25,20 +49,223 @@ const MIME_TYPES = {
 };
 
 const DIST_DIR = path.join(__dirname, 'dist');
+const LOCAL_DB_FILE = path.join(__dirname, '.medconnect-local-db.json');
 
 const SEED_HASH = {
     doctor: {
         salt: '9f566a69d3b14701b12ff87b4afdce34',
-        hash: '865abac15ec6a7a6d8481bad5fb52c019befbc20e1c6eff6650fbdb2b5fe2b34bd1458e1a3ecc64eca3169ec0a2b0601db0e34afb9608c820a04d95bc3694dba'
+        hash: '40c3b828e5c960ce82b4c0d70d3050085d4c22c21ff04039a5cc88080dc31aeaa898fcfaf8768cd067e976035dc9b419d949740154c5c25519b20a15a74c7e75'
     },
     patient: {
         salt: 'c3e6198d7965ad43dc871814edb41fc8',
-        hash: '28e16465f10b2144660ec3dd8ca32949c997dbdeb00af881e25850939e30b8f15299a396beef3dc4561d874174c4b2834dcc3412501530c275e9d25081dac7a1'
+        hash: 'e130a5c37710b3c14361b6a031a0b15737522e0d4a035195950ca258468098790d6a41495017999419e366f10f00d21cce6d0e79693680ee01d6d2929e045915'
     }
 };
 
 let dbClient;
 let db;
+
+function deepClone(value) {
+    return JSON.parse(JSON.stringify(value));
+}
+
+function readLocalStore(filePath) {
+    if (!fs.existsSync(filePath)) {
+        return {};
+    }
+
+    try {
+        return JSON.parse(fs.readFileSync(filePath, 'utf8'));
+    } catch (err) {
+        return {};
+    }
+}
+
+function normalizeIdValue(value) {
+    if (value === undefined || value === null) return null;
+    if (typeof value === 'string') return value;
+    if (typeof value === 'object') {
+        if (typeof value.toHexString === 'function') return value.toHexString();
+        if (typeof value.toString === 'function') return value.toString();
+    }
+    return String(value);
+}
+
+function getByPath(source, dottedPath) {
+    return dottedPath.split('.').reduce((value, part) => (value == null ? undefined : value[part]), source);
+}
+
+function setByPath(target, dottedPath, value) {
+    const parts = dottedPath.split('.');
+    let current = target;
+    for (let index = 0; index < parts.length - 1; index += 1) {
+        const part = parts[index];
+        if (!current[part] || typeof current[part] !== 'object') {
+            current[part] = {};
+        }
+        current = current[part];
+    }
+    current[parts[parts.length - 1]] = value;
+}
+
+function compareValues(left, right) {
+    if (left === right) return 0;
+    if (left === undefined || left === null) return 1;
+    if (right === undefined || right === null) return -1;
+
+    const leftValue = typeof left === 'number' ? left : String(left);
+    const rightValue = typeof right === 'number' ? right : String(right);
+
+    if (leftValue < rightValue) return -1;
+    if (leftValue > rightValue) return 1;
+    return 0;
+}
+
+function matchesQuery(doc, query = {}) {
+    return Object.entries(query).every(([key, expected]) => {
+        if (key === '$or') {
+            return Array.isArray(expected) && expected.some(item => matchesQuery(doc, item));
+        }
+
+        const actual = getByPath(doc, key);
+        if (expected instanceof RegExp) {
+            return expected.test(String(actual || ''));
+        }
+
+        return normalizeIdValue(actual) === normalizeIdValue(expected);
+    });
+}
+
+class LocalCursor {
+    constructor(docs) {
+        this.docs = docs;
+    }
+
+    sort(sortSpec = {}) {
+        const entries = Object.entries(sortSpec);
+        this.docs.sort((left, right) => {
+            for (const [field, direction] of entries) {
+                const result = compareValues(getByPath(left, field), getByPath(right, field));
+                if (result !== 0) {
+                    return direction >= 0 ? result : -result;
+                }
+            }
+            return 0;
+        });
+        return this;
+    }
+
+    limit(count) {
+        this.docs = this.docs.slice(0, count);
+        return this;
+    }
+
+    async toArray() {
+        return deepClone(this.docs);
+    }
+}
+
+class LocalCollection {
+    constructor(name, store, persist) {
+        this.name = name;
+        this.store = store;
+        this.persist = persist;
+        if (!Array.isArray(this.store[this.name])) {
+            this.store[this.name] = [];
+        }
+    }
+
+    async createIndex() {
+        return `${this.name}_index`;
+    }
+
+    async findOne(query = {}) {
+        const doc = this.store[this.name].find(item => matchesQuery(item, query));
+        return doc ? deepClone(doc) : null;
+    }
+
+    find(query = {}) {
+        const docs = this.store[this.name]
+            .filter(item => matchesQuery(item, query))
+            .map(item => deepClone(item));
+        return new LocalCursor(docs);
+    }
+
+    async insertOne(doc) {
+        const nextDoc = deepClone(doc);
+        if (!nextDoc._id) {
+            nextDoc._id = crypto.randomBytes(12).toString('hex');
+        } else {
+            nextDoc._id = normalizeIdValue(nextDoc._id);
+        }
+        this.store[this.name].push(nextDoc);
+        this.persist();
+        return { insertedId: nextDoc._id };
+    }
+
+    async updateOne(filter, update = {}) {
+        const index = this.store[this.name].findIndex(item => matchesQuery(item, filter));
+        if (index === -1) {
+            return { matchedCount: 0, modifiedCount: 0 };
+        }
+
+        const target = this.store[this.name][index];
+        if (update.$set) {
+            for (const [field, value] of Object.entries(update.$set)) {
+                setByPath(target, field, deepClone(value));
+            }
+        }
+
+        this.persist();
+        return { matchedCount: 1, modifiedCount: 1 };
+    }
+
+    async deleteOne(filter) {
+        const index = this.store[this.name].findIndex(item => matchesQuery(item, filter));
+        if (index === -1) {
+            return { deletedCount: 0 };
+        }
+
+        this.store[this.name].splice(index, 1);
+        this.persist();
+        return { deletedCount: 1 };
+    }
+}
+
+class LocalDatabase {
+    constructor(filePath) {
+        this.mode = 'local';
+        this.isLocal = true;
+        this.filePath = filePath;
+        this.store = readLocalStore(filePath);
+        this.collections = new Map();
+    }
+
+    collection(name) {
+        if (!this.collections.has(name)) {
+            this.collections.set(name, new LocalCollection(name, this.store, () => this.persist()));
+        }
+        return this.collections.get(name);
+    }
+
+    persist() {
+        fs.writeFileSync(this.filePath, JSON.stringify(this.store, null, 2));
+    }
+}
+
+function toDatabaseId(database, value) {
+    if (value === undefined || value === null || value === '') return null;
+    if (database?.isLocal) {
+        return String(value);
+    }
+    if (value instanceof ObjectId) {
+        return value;
+    }
+    if (!ObjectId.isValid(value)) {
+        return null;
+    }
+    return new ObjectId(value);
+}
 
 function sendJson(res, status, payload) {
     res.writeHead(status, { 'Content-Type': 'application/json' });
@@ -116,11 +343,23 @@ function sanitizeUser(userDoc) {
 async function connectDb() {
     if (db) return db;
     if (!MONGODB_URI) {
-        throw new Error('MONGODB_URI is not set');
+        db = new LocalDatabase(LOCAL_DB_FILE);
+        return db;
     }
-    dbClient = new MongoClient(MONGODB_URI);
-    await dbClient.connect();
-    db = dbClient.db(DB_NAME);
+
+    try {
+        dbClient = new MongoClient(MONGODB_URI, {
+            serverSelectionTimeoutMS: 1500,
+            connectTimeoutMS: 1500
+        });
+        await dbClient.connect();
+        db = dbClient.db(DB_NAME);
+        db.mode = 'mongo';
+    } catch (err) {
+        console.warn(`MongoDB unavailable. Starting with local datastore at ${LOCAL_DB_FILE}.`);
+        db = new LocalDatabase(LOCAL_DB_FILE);
+    }
+
     return db;
 }
 
@@ -143,14 +382,40 @@ async function seedDatabase(database) {
     const claims = database.collection('claims');
     const researchTrials = database.collection('researchTrials');
     const guidelines = database.collection('guidelines');
+    const audit = database.collection('audit');
     const DEFAULT_PASSWORD = 'Welcome123!';
 
     const ensureUser = async ({ name, email, role, profile, password, seedHash }) => {
         const emailLower = email.toLowerCase();
         const existing = await users.findOne({ emailLower });
-        if (existing) return existing;
+        const expectedPassword = password || DEFAULT_PASSWORD;
+        const expectedHash = seedHash || hashPassword(expectedPassword);
 
-        const { salt, hash } = seedHash || hashPassword(password || DEFAULT_PASSWORD);
+        if (existing) {
+            const passwordMatches = existing.passwordSalt && existing.passwordHash &&
+                verifyPassword(expectedPassword, existing.passwordSalt, existing.passwordHash);
+
+            if (!passwordMatches) {
+                await users.updateOne(
+                    { _id: existing._id },
+                    {
+                        $set: {
+                            passwordSalt: expectedHash.salt,
+                            passwordHash: expectedHash.hash
+                        }
+                    }
+                );
+                return {
+                    ...existing,
+                    passwordSalt: expectedHash.salt,
+                    passwordHash: expectedHash.hash
+                };
+            }
+
+            return existing;
+        }
+
+        const { salt, hash } = expectedHash;
         const now = new Date().toISOString();
         const userDoc = {
             name,
@@ -449,6 +714,28 @@ async function seedDatabase(database) {
                 notifications: { email: true, sms: true, appt: true },
                 privacy: { publicProfile: true, twoFactor: true }
             }
+        }),
+        ensureUser({
+            name: 'Dr. Aadi Shah',
+            email: 'aadi.shah@medconnect.gov',
+            role: 'doctor',
+            password: DEFAULT_PASSWORD,
+            profile: {
+                phone: '+1 (555) 809-2214',
+                address: 'Integrated Care Unit, Innovation Block',
+                specialty: 'Internal Medicine',
+                clinic: 'MedConnect Advanced Care Center',
+                accepting: true,
+                televisit: true,
+                rating: 4.9,
+                availability: [
+                    'Monday, 10:00 AM - 04:00 PM',
+                    'Wednesday, 09:00 AM - 01:00 PM',
+                    'Friday, 01:00 PM - 06:00 PM'
+                ],
+                notifications: { email: true, sms: true, appt: true },
+                privacy: { publicProfile: true, twoFactor: true }
+            }
         })
     ]);
 
@@ -718,10 +1005,95 @@ async function seedDatabase(database) {
                     pharmacy: 'Riverview Pharmacy'
                 }
             }
+        }),
+        ensureUser({
+            name: 'Aarav Malhotra',
+            email: 'aarav.malhotra@patient.gov',
+            role: 'patient',
+            password: DEFAULT_PASSWORD,
+            profile: {
+                phone: '+1 (555) 782-1180',
+                address: '82 Maple Ridge, Edison',
+                preferredDoctorId: allDoctors[13]._id.toString(),
+                emergencyContact: { name: 'Ritu Malhotra', phone: '+1 (555) 782-1199' },
+                notifications: { email: true, sms: true, appt: true },
+                privacy: { researchSharing: true, twoFactor: true },
+                medical: {
+                    bloodType: 'A+',
+                    allergies: 'Sulfa drugs',
+                    medications: 'Rosuvastatin 10mg',
+                    pharmacy: 'Edison Family Pharmacy'
+                }
+            }
+        }),
+        ensureUser({
+            name: 'Nisha Verma',
+            email: 'nisha.verma@patient.gov',
+            role: 'patient',
+            password: DEFAULT_PASSWORD,
+            profile: {
+                phone: '+1 (555) 660-4178',
+                address: '17 Rose Garden Lane, Austin',
+                preferredDoctorId: allDoctors[13]._id.toString(),
+                emergencyContact: { name: 'Anil Verma', phone: '+1 (555) 660-4100' },
+                notifications: { email: true, sms: false, appt: true },
+                privacy: { researchSharing: false, twoFactor: true },
+                medical: {
+                    bloodType: 'AB-',
+                    allergies: 'Latex',
+                    medications: 'Iron supplements',
+                    pharmacy: 'Austin Community Pharmacy'
+                }
+            }
+        }),
+        ensureUser({
+            name: 'Zoe Carter',
+            email: 'zoe.carter@patient.gov',
+            role: 'patient',
+            password: DEFAULT_PASSWORD,
+            profile: {
+                phone: '+1 (555) 930-2208',
+                address: '11 Harbor Circle, Portland',
+                preferredDoctorId: allDoctors[11]._id.toString(),
+                emergencyContact: { name: 'Mason Carter', phone: '+1 (555) 930-2211' },
+                notifications: { email: true, sms: true, appt: true },
+                privacy: { researchSharing: true, twoFactor: false },
+                medical: {
+                    bloodType: 'B+',
+                    allergies: 'Peanuts',
+                    medications: 'Sertraline 50mg',
+                    pharmacy: 'Portland Wellness Pharmacy'
+                }
+            }
+        }),
+        ensureUser({
+            name: 'Imran Sheikh',
+            email: 'imran.sheikh@patient.gov',
+            role: 'patient',
+            password: DEFAULT_PASSWORD,
+            profile: {
+                phone: '+1 (555) 214-8870',
+                address: '99 Orchard Square, Fremont',
+                preferredDoctorId: allDoctors[13]._id.toString(),
+                emergencyContact: { name: 'Sana Sheikh', phone: '+1 (555) 214-8801' },
+                notifications: { email: true, sms: true, appt: true },
+                privacy: { researchSharing: false, twoFactor: false },
+                medical: {
+                    bloodType: 'O-',
+                    allergies: 'Dust mites',
+                    medications: 'Budesonide inhaler',
+                    pharmacy: 'Fremont Care Pharmacy'
+                }
+            }
         })
     ]);
 
     const allPatients = [patientSeed, ...additionalPatients];
+    const aadiDoctor = additionalDoctors[12];
+    const aaravPatient = additionalPatients[12];
+    const nishaPatient = additionalPatients[13];
+    const zoePatient = additionalPatients[14];
+    const imranPatient = additionalPatients[15];
 
     const ensureAppointment = async ({ patient, doctor, date, time, status, mode, visitType, reason }) => {
         const existing = await appointments.findOne({
@@ -960,6 +1332,146 @@ async function seedDatabase(database) {
             mode: 'Televisit',
             visitType: 'Follow-up',
             reason: 'GI medication review'
+        }),
+        ensureAppointment({
+            patient: aaravPatient,
+            doctor: aadiDoctor,
+            date: toDate(1),
+            time: '12:20 PM',
+            status: 'Confirmed',
+            mode: 'Televisit',
+            visitType: 'New Patient',
+            reason: 'Chest discomfort after high-intensity training'
+        }),
+        ensureAppointment({
+            patient: aaravPatient,
+            doctor: doctorSeed,
+            date: toDate(19),
+            time: '09:55 AM',
+            status: 'Pending',
+            mode: 'In-Person',
+            visitType: 'Cardiac Review',
+            reason: 'Preventive cardiac screening and vitals review'
+        }),
+        ensureAppointment({
+            patient: nishaPatient,
+            doctor: aadiDoctor,
+            date: toDate(3),
+            time: '02:05 PM',
+            status: 'Pending',
+            mode: 'In-Person',
+            visitType: 'Care Plan',
+            reason: 'Fatigue, anemia review, and nutrition planning'
+        }),
+        ensureAppointment({
+            patient: nishaPatient,
+            doctor: additionalDoctors[9],
+            date: toDate(16),
+            time: '10:35 AM',
+            status: 'Confirmed',
+            mode: 'Televisit',
+            visitType: 'Women Wellness',
+            reason: 'Hormonal health follow-up'
+        }),
+        ensureAppointment({
+            patient: zoePatient,
+            doctor: additionalDoctors[11],
+            date: toDate(5),
+            time: '11:55 AM',
+            status: 'Confirmed',
+            mode: 'Televisit',
+            visitType: 'Mental Health',
+            reason: 'Stress and sleep quality review'
+        }),
+        ensureAppointment({
+            patient: zoePatient,
+            doctor: aadiDoctor,
+            date: toDate(23),
+            time: '03:10 PM',
+            status: 'Pending',
+            mode: 'In-Person',
+            visitType: 'Follow-up',
+            reason: 'Medication tolerance and annual screening'
+        }),
+        ensureAppointment({
+            patient: imranPatient,
+            doctor: aadiDoctor,
+            date: toDate(-4),
+            time: '01:40 PM',
+            status: 'Completed',
+            mode: 'Televisit',
+            visitType: 'Internal Medicine Review',
+            reason: 'Respiratory recovery check and care coordination'
+        }),
+        ensureAppointment({
+            patient: imranPatient,
+            doctor: additionalDoctors[7],
+            date: toDate(11),
+            time: '08:40 AM',
+            status: 'Confirmed',
+            mode: 'In-Person',
+            visitType: 'Pulmonology Review',
+            reason: 'Persistent wheeze and inhaler optimization'
+        }),
+        ensureAppointment({
+            patient: additionalPatients[0],
+            doctor: aadiDoctor,
+            date: toDate(2),
+            time: '09:10 AM',
+            status: 'Confirmed',
+            mode: 'In-Person',
+            visitType: 'Internal Medicine Intake',
+            reason: 'Migraine care coordination and preventive screening'
+        }),
+        ensureAppointment({
+            patient: additionalPatients[1],
+            doctor: aadiDoctor,
+            date: toDate(6),
+            time: '10:25 AM',
+            status: 'Pending',
+            mode: 'Televisit',
+            visitType: 'Follow-up',
+            reason: 'Pediatric handoff and chronic medication review'
+        }),
+        ensureAppointment({
+            patient: additionalPatients[2],
+            doctor: aadiDoctor,
+            date: toDate(7),
+            time: '04:20 PM',
+            status: 'Confirmed',
+            mode: 'In-Person',
+            visitType: 'Complex Review',
+            reason: 'Post-surgery recovery monitoring and care planning'
+        }),
+        ensureAppointment({
+            patient: additionalPatients[3],
+            doctor: aadiDoctor,
+            date: toDate(10),
+            time: '01:50 PM',
+            status: 'Pending',
+            mode: 'Televisit',
+            visitType: 'Wellness Review',
+            reason: 'Mobility concerns and annual preventive review'
+        }),
+        ensureAppointment({
+            patient: additionalPatients[4],
+            doctor: aadiDoctor,
+            date: toDate(13),
+            time: '11:35 AM',
+            status: 'Confirmed',
+            mode: 'In-Person',
+            visitType: 'Care Plan',
+            reason: 'Metabolic follow-up and diet adherence review'
+        }),
+        ensureAppointment({
+            patient: additionalPatients[5],
+            doctor: aadiDoctor,
+            date: toDate(17),
+            time: '03:25 PM',
+            status: 'Pending',
+            mode: 'Televisit',
+            visitType: 'Internal Medicine Review',
+            reason: 'Thyroid and fatigue management checkpoint'
         })
     ]);
 
@@ -1159,6 +1671,50 @@ async function seedDatabase(database) {
             provider: 'GI Lab',
             summary: 'No abnormalities detected.',
             orderedBy: additionalDoctors[8].name
+        },
+        {
+            reportId: 'LAB-1015',
+            patientId: aaravPatient._id.toString(),
+            patientName: aaravPatient.name,
+            testName: 'Cardiac Risk Marker Panel',
+            collectedDate: toDate(-2),
+            status: 'Ready',
+            provider: 'Advanced Care Diagnostics',
+            summary: 'Markers within range. Lifestyle counseling advised.',
+            orderedBy: aadiDoctor.name
+        },
+        {
+            reportId: 'LAB-1016',
+            patientId: nishaPatient._id.toString(),
+            patientName: nishaPatient.name,
+            testName: 'Iron Studies',
+            collectedDate: toDate(-6),
+            status: 'Ready',
+            provider: 'Austin Central Lab',
+            summary: 'Ferritin below range. Continue supplementation and follow-up.',
+            orderedBy: aadiDoctor.name
+        },
+        {
+            reportId: 'LAB-1017',
+            patientId: zoePatient._id.toString(),
+            patientName: zoePatient.name,
+            testName: 'Sleep and Stress Assessment',
+            collectedDate: toDate(-8),
+            status: 'Ready',
+            provider: 'Behavioral Health Diagnostics',
+            summary: 'Sleep consistency improved. Moderate work-related stress persists.',
+            orderedBy: additionalDoctors[11].name
+        },
+        {
+            reportId: 'LAB-1018',
+            patientId: imranPatient._id.toString(),
+            patientName: imranPatient.name,
+            testName: 'Inflammatory Marker Review',
+            collectedDate: toDate(-3),
+            status: 'In Review',
+            provider: 'Pulmonary Research Lab',
+            summary: 'Panel uploaded and awaiting clinician acknowledgment.',
+            orderedBy: aadiDoctor.name
         }
     ];
 
@@ -1285,6 +1841,50 @@ async function seedDatabase(database) {
             status: 'Ready for pickup',
             pharmacy: 'Riverview Pharmacy',
             orderedDate: toDate(-2)
+        },
+        {
+            orderId: 'RX-2012',
+            patientId: aaravPatient._id.toString(),
+            patientName: aaravPatient.name,
+            medication: 'Rosuvastatin 10mg',
+            quantity: '30 tablets',
+            refills: 2,
+            status: 'Ready for pickup',
+            pharmacy: 'Edison Family Pharmacy',
+            orderedDate: toDate(-1)
+        },
+        {
+            orderId: 'RX-2013',
+            patientId: nishaPatient._id.toString(),
+            patientName: nishaPatient.name,
+            medication: 'Ferrous Sulfate 325mg',
+            quantity: '60 tablets',
+            refills: 1,
+            status: 'In transit',
+            pharmacy: 'Austin Community Pharmacy',
+            orderedDate: toDate(0)
+        },
+        {
+            orderId: 'RX-2014',
+            patientId: zoePatient._id.toString(),
+            patientName: zoePatient.name,
+            medication: 'Sertraline 50mg',
+            quantity: '30 tablets',
+            refills: 2,
+            status: 'Pending approval',
+            pharmacy: 'Portland Wellness Pharmacy',
+            orderedDate: toDate(1)
+        },
+        {
+            orderId: 'RX-2015',
+            patientId: imranPatient._id.toString(),
+            patientName: imranPatient.name,
+            medication: 'Budesonide inhaler',
+            quantity: '1 inhaler',
+            refills: 1,
+            status: 'Shipped',
+            pharmacy: 'Fremont Care Pharmacy',
+            orderedDate: toDate(-3)
         }
     ];
 
@@ -1354,6 +1954,30 @@ async function seedDatabase(database) {
             homeCollection: true,
             turnaround: '24 hrs',
             price: 700
+        },
+        {
+            testId: 'DX-1009',
+            name: 'Cardiac CT Calcium Score',
+            category: 'Cardiology',
+            homeCollection: false,
+            turnaround: '72 hrs',
+            price: 5200
+        },
+        {
+            testId: 'DX-1010',
+            name: 'Comprehensive Iron Deficiency Panel',
+            category: 'Internal Medicine',
+            homeCollection: true,
+            turnaround: '24 hrs',
+            price: 1250
+        },
+        {
+            testId: 'DX-1011',
+            name: 'Home Sleep Apnea Study',
+            category: 'Behavioral Health',
+            homeCollection: true,
+            turnaround: '48 hrs',
+            price: 2600
         }
     ];
 
@@ -1415,6 +2039,20 @@ async function seedDatabase(database) {
             includes: 'Hormone panel, gyne consult, preventive screening',
             price: 5400,
             duration: '1 day'
+        },
+        {
+            packageId: 'PKG-3009',
+            name: 'Internal Medicine Precision Check',
+            includes: 'Cardiac risk review, metabolic panel, physician consult',
+            price: 4800,
+            duration: '1 day'
+        },
+        {
+            packageId: 'PKG-3010',
+            name: 'Mind and Sleep Recovery Program',
+            includes: 'Sleep study, behavioral screening, counseling review',
+            price: 3900,
+            duration: '2 days'
         }
     ];
 
@@ -1503,6 +2141,36 @@ async function seedDatabase(database) {
             status: 'Payment Due',
             dueDate: toDate(5),
             insurer: 'Metro Health Cover'
+        },
+        {
+            claimId: 'CLM-4008',
+            patientId: aaravPatient._id.toString(),
+            patientName: aaravPatient.name,
+            description: 'Internal medicine teleconsult and cardiac review',
+            amount: 2100,
+            status: 'Approved',
+            dueDate: toDate(6),
+            insurer: 'PrimeCare Shield'
+        },
+        {
+            claimId: 'CLM-4009',
+            patientId: nishaPatient._id.toString(),
+            patientName: nishaPatient.name,
+            description: 'Iron studies and follow-up consultation',
+            amount: 1750,
+            status: 'Pending',
+            dueDate: toDate(9),
+            insurer: 'Gov Health Plan'
+        },
+        {
+            claimId: 'CLM-4010',
+            patientId: imranPatient._id.toString(),
+            patientName: imranPatient.name,
+            description: 'Pulmonology review and inhaler management',
+            amount: 2400,
+            status: 'Submitted',
+            dueDate: toDate(11),
+            insurer: 'Employee Health Scheme'
         }
     ];
 
@@ -1548,6 +2216,22 @@ async function seedDatabase(database) {
             status: 'Recruiting',
             location: 'Central Hospital Campus',
             sponsor: 'Women Health Council'
+        },
+        {
+            trialId: 'CTRI-2026-03-022118',
+            title: 'AI-assisted Internal Medicine Triage Workflow',
+            phase: 'Phase II',
+            status: 'Recruiting',
+            location: 'MedConnect Advanced Care Center',
+            sponsor: 'Digital Health Innovation Board'
+        },
+        {
+            trialId: 'CTRI-2026-01-020884',
+            title: 'Remote Sleep and Stress Recovery Study',
+            phase: 'Phase III',
+            status: 'Active, not recruiting',
+            location: 'Community Health Center',
+            sponsor: 'Behavioral Health Alliance'
         }
     ];
 
@@ -1577,10 +2261,75 @@ async function seedDatabase(database) {
             title: 'Maternal and Child Health Research Priorities',
             year: 2017,
             category: 'Public Health'
+        },
+        {
+            guidelineId: 'ICMR-G-2026-IM',
+            title: 'Integrated Adult Preventive Care Pathway for Internal Medicine Clinics',
+            year: 2026,
+            category: 'Internal Medicine'
+        },
+        {
+            guidelineId: 'ICMR-G-2026-DHT',
+            title: 'Digital Health Triage and Follow-up Best Practices',
+            year: 2026,
+            category: 'Digital Health'
         }
     ];
 
     await Promise.all(guidelineSeed.map(item => ensureDoc(guidelines, { guidelineId: item.guidelineId }, item)));
+
+    const auditSeed = [
+        {
+            seedId: 'AUD-5001',
+            userId: doctorSeed._id.toString(),
+            action: 'seed_overview',
+            details: { note: 'Primary dashboard seeded with cardiology activity.' },
+            ip: '127.0.0.1',
+            timestamp: `${toDate(-1)}T08:40:00Z`
+        },
+        {
+            seedId: 'AUD-5002',
+            userId: patientSeed._id.toString(),
+            action: 'seed_profile',
+            details: { note: 'Patient profile and appointments were created.' },
+            ip: '127.0.0.1',
+            timestamp: `${toDate(-1)}T09:15:00Z`
+        },
+        {
+            seedId: 'AUD-5003',
+            userId: aadiDoctor._id.toString(),
+            action: 'seed_doctor',
+            details: { note: 'Aadi Shah specialist account and schedule are available.' },
+            ip: '127.0.0.1',
+            timestamp: `${toDate(-1)}T09:45:00Z`
+        },
+        {
+            seedId: 'AUD-5004',
+            userId: aaravPatient._id.toString(),
+            action: 'seed_appointment',
+            details: { note: 'Cardiac consult and follow-up records were created.' },
+            ip: '127.0.0.1',
+            timestamp: `${toDate(0)}T07:30:00Z`
+        },
+        {
+            seedId: 'AUD-5005',
+            userId: nishaPatient._id.toString(),
+            action: 'seed_lab_report',
+            details: { note: 'Iron studies and medication records were attached.' },
+            ip: '127.0.0.1',
+            timestamp: `${toDate(0)}T08:10:00Z`
+        },
+        {
+            seedId: 'AUD-5006',
+            userId: imranPatient._id.toString(),
+            action: 'seed_operations',
+            details: { note: 'Respiratory follow-up and insurance workflow were seeded.' },
+            ip: '127.0.0.1',
+            timestamp: `${toDate(0)}T08:55:00Z`
+        }
+    ];
+
+    await Promise.all(auditSeed.map(item => ensureDoc(audit, { seedId: item.seedId }, item)));
 }
 
 async function getAuthContext(req, database) {
@@ -1597,7 +2346,10 @@ async function getAuthContext(req, database) {
         return { user: null, session: null };
     }
 
-    const user = await database.collection('users').findOne({ _id: new ObjectId(session.userId) });
+    const userId = toDatabaseId(database, session.userId);
+    if (!userId) return { user: null, session: null };
+
+    const user = await database.collection('users').findOne({ _id: userId });
     if (!user) return { user: null, session: null };
 
     return { user, session };
@@ -1618,7 +2370,7 @@ async function handleApi(req, res, database) {
     const { pathname } = url;
 
     if (pathname === '/api/health' && req.method === 'GET') {
-        return sendJson(res, 200, { ok: true });
+        return sendJson(res, 200, { ok: true, mode: database.mode || 'mongo' });
     }
 
     if (pathname === '/api/register' && req.method === 'POST') {
@@ -1864,7 +2616,12 @@ async function handleApi(req, res, database) {
             return sendJson(res, 400, { message: 'Missing required appointment details.' });
         }
 
-        const doctor = await database.collection('users').findOne({ _id: new ObjectId(doctorId), role: 'doctor' });
+        const doctorObjectId = toDatabaseId(database, doctorId);
+        if (!doctorObjectId) {
+            return sendJson(res, 400, { message: 'Invalid doctor id.' });
+        }
+
+        const doctor = await database.collection('users').findOne({ _id: doctorObjectId, role: 'doctor' });
         if (!doctor) {
             return sendJson(res, 404, { message: 'Doctor not found.' });
         }
@@ -1898,7 +2655,10 @@ async function handleApi(req, res, database) {
         const appointmentId = pathname.split('/').pop();
         if (!appointmentId) return sendJson(res, 400, { message: 'Invalid appointment.' });
 
-        const appointment = await database.collection('appointments').findOne({ _id: new ObjectId(appointmentId) });
+        const appointmentObjectId = toDatabaseId(database, appointmentId);
+        if (!appointmentObjectId) return sendJson(res, 400, { message: 'Invalid appointment.' });
+
+        const appointment = await database.collection('appointments').findOne({ _id: appointmentObjectId });
         if (!appointment) return sendJson(res, 404, { message: 'Appointment not found.' });
 
         const body = await readJson(req);
@@ -1926,7 +2686,7 @@ async function handleApi(req, res, database) {
         }
 
         await database.collection('appointments').updateOne(
-            { _id: appointment._id },
+            { _id: appointmentObjectId },
             { $set: updates }
         );
         await logAudit(database, auth.user._id.toString(), 'appointment_update', { appointmentId, updates }, req);
@@ -2148,7 +2908,7 @@ async function start() {
         });
 
         server.listen(PORT, () => {
-            console.log(`Server running at http://localhost:${PORT}/`);
+            console.log(`Server running at http://localhost:${PORT}/ using ${database.mode || 'mongo'} storage.`);
         });
     } catch (err) {
         console.error('Failed to start server:', err.message);
